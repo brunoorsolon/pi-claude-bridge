@@ -70,6 +70,14 @@ type SessionToolWatchState = {
 
 const toolWatchStateBySession = new Map<string, SessionToolWatchState>();
 
+// Claude Code reports subscription quota in a rate_limit_event after each
+// response. The latest one is served on Pi's event bus, so a footer can show it
+// without reading the login that Claude Code holds.
+const QUOTA_REQUEST_CHANNEL = "claude-agent-sdk:quota:request";
+const QUOTA_CHANGED_CHANNEL = "claude-agent-sdk:quota:changed";
+let latestRateLimitInfo: unknown = null;
+let quotaEvents: ExtensionAPI["events"] | undefined;
+
 function createEmptyToolWatchState(): SessionToolWatchState {
 	return {
 		completedToolCalls: new Map(),
@@ -1135,6 +1143,12 @@ function streamClaudeAgentSdk(model: Model<any>, piContext: Context, options?: S
 						break;
 					}
 
+					case "rate_limit_event": {
+						latestRateLimitInfo = message.rate_limit_info;
+						quotaEvents?.emit(QUOTA_CHANGED_CHANNEL, undefined);
+						break;
+					}
+
 					case "result": {
 						if (!sawStreamEvent && message.subtype === "success") {
 							output.content.push({ type: "text", text: message.result || "" });
@@ -1230,6 +1244,12 @@ export default function (pi: ExtensionAPI) {
 			isError,
 			timestamp,
 		});
+	});
+
+	quotaEvents = pi.events;
+	pi.events.on(QUOTA_REQUEST_CHANNEL, (request) => {
+		const reply = (request as { reply?: unknown } | undefined)?.reply;
+		if (typeof reply === "function") reply({ ok: true, quota: latestRateLimitInfo });
 	});
 
 	pi.registerProvider(PROVIDER_ID, {
