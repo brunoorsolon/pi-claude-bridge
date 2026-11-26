@@ -38,6 +38,18 @@ for await (const line of createInterface({ input: process.stdin })) {
     void (async () => {
       await initialized;
       if (process.env.SDK_TEST_SCENARIO === 'cancel') return;
+      if (process.env.SDK_TEST_SCENARIO === 'quota') {
+        // Claude Code sends rate_limit_event after the response's message_stop.
+        event({ type: 'message_start', message: { usage: { input_tokens: 7, output_tokens: 0 } } });
+        event({ type: 'content_block_start', index: 0, content_block: { type: 'text' } });
+        event({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'quota text' } });
+        event({ type: 'content_block_stop', index: 0 });
+        event({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 2 } });
+        event({ type: 'message_stop' });
+        send({ type: 'rate_limit_event', rate_limit_info: JSON.parse(process.env.SDK_TEST_RATE_LIMIT), uuid: '00000000-0000-4000-8000-000000000001', session_id: 'fixture' });
+        send({ type: 'result', subtype: 'success', is_error: false, result: 'quota text', session_id: 'fixture' });
+        return;
+      }
       event({ type: 'message_start', message: { usage: { input_tokens: 7, output_tokens: 0 } } });
       for (const [index, type, deltaType, text] of [[0, 'thinking', 'thinking_delta', 'fixture thought'], [1, 'text', 'text_delta', 'fixture text']]) {
         event({ type: 'content_block_start', index, content_block: { type } });

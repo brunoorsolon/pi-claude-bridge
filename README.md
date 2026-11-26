@@ -23,7 +23,7 @@ An independent continuation of [prateekmedia/claude-agent-sdk-pi](https://github
 1) Install the extension globally (npm is the preferred source now):
 
 ```
-pi install npm:@puglab/pi-claude-bridge@1.0.26
+pi install npm:@puglab/pi-claude-bridge@1.0.27
 ```
 
 Keep the exact version in consumer configuration and preserve the consumer lockfile where applicable.
@@ -31,7 +31,7 @@ Keep the exact version in consumer configuration and preserve the consumer lockf
 **Alternative (git):**
 
 ```
-pi install git:github.com/brunoorsolon/pi-claude-bridge@v1.0.26
+pi install git:github.com/brunoorsolon/pi-claude-bridge@v1.0.27
 ```
 
 See **pi-coding-agent** install docs for other install sources and paths.
@@ -57,11 +57,11 @@ See **pi-coding-agent** install docs for other install sources and paths.
 
 ### Migrating from the previous package
 
-Once `@puglab/pi-claude-bridge@1.0.26` is published, replace the old package rather than loading both:
+Once `@puglab/pi-claude-bridge@1.0.27` is published, replace the old package rather than loading both:
 
 ```bash
 pi remove npm:@puglab/claude-agent-sdk-pi
-pi install npm:@puglab/pi-claude-bridge@1.0.26
+pi install npm:@puglab/pi-claude-bridge@1.0.27
 ```
 
 If your Pi configuration owns installation, replace the old npm or Git source there instead and preserve its lockfile where applicable. Then reload Pi. The provider ID `claude-agent-sdk` and the settings keys `claudeAgentSdkProvider` / `claude-agent-sdk-provider` are unchanged, so existing model selections and settings still apply. Do not load the original upstream package alongside this one either; it registers the same provider ID.
@@ -100,6 +100,15 @@ Any extra tools registered in pi are exposed to Claude Code via an in-process MC
 - Example: `mcp__custom-tools__subagent`
 
 The provider automatically maps these back to the pi tool name (e.g. `subagent`).
+
+## Subscription quota
+
+Claude Code reports a subscription login's quota in a `rate_limit_event` after each response. The provider keeps the latest one and serves it on Pi's event bus, so another extension can show it without reading the login:
+
+- Emit `claude-agent-sdk:quota:request` with `{ reply }`. The provider calls `reply({ ok: true, quota })` once, where `quota` is the latest `rate_limit_info` (`null` before the first response). Claude Code 2.1.332 includes `unifiedWindows.five_hour` and `unifiedWindows.seven_day`, each with `utilization` (0–1), `resetsAt` (epoch seconds), and `status`.
+- `claude-agent-sdk:quota:changed` fires whenever a new event arrives.
+
+The values are as of the latest completed reply: a turn that ends in a tool call hands control back to Pi before Claude Code sends that turn's event. The provider makes no extra request for quota.
 
 ## Thinking and output limits
 

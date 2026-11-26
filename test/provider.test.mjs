@@ -17,7 +17,7 @@ for (const key of Object.keys(process.env)) if (/ANTHROPIC|CLAUDE.*(KEY|TOKEN|AU
 writeFileSync(join(project, 'AGENTS.md'), 'NEARER_FILE_MUST_NOT_REPLACE_EFFECTIVE_CONTEXT');
 const entry = process.env.PI_TEST_AGENT_ENTRY ?? import.meta.resolve('@earendil-works/pi-coding-agent');
 const { loadExtensions, loadExtensionFromFactory } = await import(new URL('./core/extensions/loader.js', entry));
-const { wrapRegisteredTool } = await import(entry);
+const { wrapRegisteredTool, createEventBus } = await import(entry);
 const piMajor = JSON.parse(readFileSync(new URL('../package.json', entry), 'utf8')).version.split('.')[0];
 // Pi 1.x hands providers only a transcript: the prompt rides in system-message sections, tools in add/remove deltas.
 const retired = { name: 'retired_tool', description: 'Removed before this request', parameters: { type: 'object' } };
@@ -27,7 +27,8 @@ const piContext = (systemPrompt, tools, messages) => piMajor === '0' ? { systemP
   ...messages,
 ] };
 const extensionPath = resolve(originalCwd, process.env.PI_TEST_EXTENSION ?? 'index.ts');
-const loaded = await loadExtensions([extensionPath], project);
+const events = createEventBus();
+const loaded = await loadExtensions([extensionPath], project, events);
 assert.deepEqual(loaded.errors, []);
 const { config: provider } = loaded.runtime.pendingProviderRegistrations.find((item) => item.name === 'claude-agent-sdk');
 const model = { ...provider.models.find((model) => model.id.includes('opus-4-7')), provider: 'claude-agent-sdk', api: 'claude-agent-sdk' };
@@ -241,4 +242,23 @@ test('adaptive thinking and absent reasoning leave the output limit to Claude Co
   for (const id of ['claude-opus-5-5', 'claude-sonnet-5', 'claude-haiku-5-5', 'claude-fable-5-1', 'claude-opus-6']) {
     assert.deepEqual(budget(await run({ model: providerModel('claude-sonnet-4-5', { id, maxTokens: 128000 }) })), { thinking: 'adaptive', effort: 'high' }, id);
   }
+});
+
+test('the latest rate_limit_event answers quota requests and announces each change', async () => {
+  const requestQuota = () => new Promise((resolve) => events.emit('claude-agent-sdk:quota:request', { reply: resolve }));
+  const before = await requestQuota();
+  assert.deepEqual(before, { ok: true, quota: null });
+  let changes = 0;
+  const stop = events.on('claude-agent-sdk:quota:changed', () => { changes++; });
+  const info = { status: 'allowed', unifiedWindows: { five_hour: { utilization: 0.53, resetsAt: 1795698600, status: 'allowed' }, seven_day: { utilization: 0.42, resetsAt: 1795719600, status: 'allowed' } } };
+  process.env.SDK_TEST_RATE_LIMIT = JSON.stringify(info);
+  try {
+    const { events: streamed } = await run({ scenario: 'quota' });
+    assert.equal(streamed.at(-1).type, 'done');
+  } finally {
+    stop();
+    delete process.env.SDK_TEST_RATE_LIMIT;
+  }
+  assert.equal(changes, 1);
+  assert.deepEqual(await requestQuota(), { ok: true, quota: info });
 });
